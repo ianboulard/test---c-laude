@@ -33,6 +33,24 @@ export function runScenario(factor: Factor, shock: number, regression: Regressio
   return { proxyReturn, assetReturn: regression.beta * proxyReturn }
 }
 
+export interface ConfidenceBand {
+  low: number
+  high: number
+}
+
+/**
+ * A range around the point estimate from the regression's own residual spread — the
+ * daily-return "noise" this factor never explained, historically. This is a plain
+ * ± z·residualStd band, not a textbook OLS prediction interval (which would also
+ * account for sample size and how far the shock sits from the data's mean) — for a
+ * ~250-point daily sample that correction is small, and the label says "typical range"
+ * rather than claiming a formal confidence level, since daily equity returns are
+ * fatter-tailed than the normal distribution a strict Gaussian CI would assume.
+ */
+export function confidenceBand(regression: RegressionResult, assetReturn: number, z = 1): ConfidenceBand {
+  return { low: assetReturn - z * regression.residualStd, high: assetReturn + z * regression.residualStd }
+}
+
 export function shockLabel(factor: Factor, shock: number): string {
   if (factor.unit === 'bps') {
     const sign = shock > 0 ? '+' : shock < 0 ? '−' : ''

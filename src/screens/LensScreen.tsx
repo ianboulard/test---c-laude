@@ -90,7 +90,7 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
 
       <span style={mono(10.5, 600, 'oklch(0.62 0 0)', { letterSpacing: '.12em', marginTop: 4 })}>WHAT-IF · SCENARIO</span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '13px 12px', border: '1px solid rgba(255,255,255,.1)', borderLeft: '3px solid oklch(0.78 0.13 75)', borderRadius: 12, background: '#0a0a0a' }}>
-        <span style={sans(11, 400, 'oklch(0.62 0 0)', 1.45)}>Pick a factor, drag the slider to a hypothetical move, and see the modeled price impact on {vm.sym} — and across your book — from its regressed beta.</span>
+        <span style={sans(11, 400, 'oklch(0.62 0 0)', 1.45)}>Pick a factor and drag the slider to a hypothetical move. The predicted % is the regressed beta applied to the shock; the backtest below checks it against what actually happened on the closest real historical days, so a straight-line extrapolation can't pass as validated.</span>
 
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
           {vm.scenario.picker.map((p) => (
@@ -118,6 +118,7 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
           <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,.045)' }}>
             <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>{vm.sym} PREDICTED MOVE</span>
             <span style={mono(17, 600, vm.scenario.assetColor)}>{vm.scenario.assetPct}</span>
+            {vm.scenario.band.show && <span style={mono(9, 400, 'oklch(0.5 0 0)')}>typical {vm.scenario.band.low} to {vm.scenario.band.high}</span>}
           </span>
           <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,.045)' }}>
             <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>{vm.scenario.proxy} IMPLIED MOVE</span>
@@ -127,6 +128,34 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
 
         <span style={sans(11.5, 400, 'oklch(0.72 0 0)', 1.5)}>{vm.scenario.read}</span>
         {!vm.scenario.ready && <span style={mono(9.5, 400, 'oklch(0.5 0 0)', { lineHeight: 1.4 })}>{vm.scenario.note}</span>}
+
+        {vm.scenario.extrapolation.show && (
+          <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '9px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,.12)', borderLeft: '2px solid oklch(0.66 0.16 25)', background: 'rgba(255,255,255,.03)' }}>
+            <span style={mono(8.5, 600, 'oklch(0.66 0.16 25)', { letterSpacing: '.1em', flex: 'none' })}>EXTRAPOLATION</span>
+            <span style={sans(10.5, 400, 'oklch(0.68 0 0)', 1.45)}>{vm.scenario.extrapolation.message}</span>
+          </div>
+        )}
+
+        {vm.scenario.analog.ready && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.07)' }}>
+            <span style={mono(9.5, 600, 'oklch(0.6 0 0)', { letterSpacing: '.1em' })}>BACKTEST · {vm.scenario.analog.count} CLOSEST HISTORICAL DAYS</span>
+            <span style={sans(11, 400, 'oklch(0.68 0 0)', 1.45)}>{vm.scenario.analog.read}</span>
+            <div style={{ display: 'flex', gap: 7 }}>
+              <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '7px 9px', borderRadius: 7, background: 'rgba(255,255,255,.04)' }}>
+                <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>MEDIAN</span>
+                <span style={mono(13, 600, '#e9e9e9')}>{vm.scenario.analog.medianPct}</span>
+              </span>
+              <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '7px 9px', borderRadius: 7, background: 'rgba(255,255,255,.04)' }}>
+                <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>MEAN</span>
+                <span style={mono(13, 600, '#e9e9e9')}>{vm.scenario.analog.meanPct}</span>
+              </span>
+              <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '7px 9px', borderRadius: 7, background: 'rgba(255,255,255,.04)' }}>
+                <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>RANGE</span>
+                <span style={mono(12, 600, '#e9e9e9')}>{vm.scenario.analog.rangeLow} to {vm.scenario.analog.rangeHigh}</span>
+              </span>
+            </div>
+          </div>
+        )}
 
         {vm.scenario.bookImpact.show && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.07)' }}>

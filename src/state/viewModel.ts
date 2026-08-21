@@ -4,7 +4,8 @@ import type { Position } from '../lib/types'
 import { money, px, pct, hashSeed, series, linePoints } from '../lib/format'
 import { clearBasis } from '../lib/storage'
 import { regress, factorPlain } from '../lib/regress'
-import { runScenario, shockLabel as formatShockLabel } from '../lib/scenario'
+import { runScenario, confidenceBand, shockLabel as formatShockLabel } from '../lib/scenario'
+import { historicalAnalogs, isExtrapolation, maxObservedMove } from '../lib/backtest'
 import {
   UP, DOWN, BLUE, AMBER, SECTOR_COLORS, SECTOR_OPTIONS, RANGE_N, FACTORS, FACTOR_BY_ID,
   DEFAULT_SHOCK_RANGE, factorsForTopic, RES_FILTERS, RES_BLURB, NEWS, RECOS, BASIS_SCORE, BASIS_WHY, MAP_GROUPS,
@@ -370,6 +371,12 @@ export function buildViewModel(b: Basis) {
   const scenarioProxySeries = barsOf(scenarioFactorDef.proxy)
   const scenarioReg = lensSeries && scenarioProxySeries ? regress(lensSeries, scenarioProxySeries) : null
   const scenarioOutcome = scenarioReg ? runScenario(scenarioFactorDef, scenarioShock, scenarioReg) : null
+  const scenarioBand = scenarioReg && scenarioOutcome ? confidenceBand(scenarioReg, scenarioOutcome.assetReturn, 1) : null
+  const scenarioAnalog = scenarioReg && scenarioOutcome
+    ? historicalAnalogs(scenarioReg.factorRets, scenarioReg.assetRets, scenarioOutcome.proxyReturn, 15)
+    : null
+  const scenarioIsExtrapolation = scenarioReg && scenarioOutcome ? isExtrapolation(scenarioReg.factorRets, scenarioOutcome.proxyReturn) : false
+  const scenarioMaxObserved = scenarioReg ? maxObservedMove(scenarioReg.factorRets) : 0
   const [shockMin, shockMax, shockStep] = scenarioFactorDef.shockRange || DEFAULT_SHOCK_RANGE
 
   const scenarioBookRows = pos
@@ -414,6 +421,41 @@ export function buildViewModel(b: Basis) {
         + ' moved ' + formatShockLabel(scenarioFactorDef, scenarioShock) + ' (' + scenarioFactorDef.proxy + ' ' + pct(scenarioOutcome.proxyReturn * 100)
         + '), based on its regressed beta of ' + (scenarioReg!.beta >= 0 ? '+' : '−') + Math.abs(scenarioReg!.beta).toFixed(2) + '.'
       : 'Pick a factor and load bars to model a hypothetical move.',
+    // ± 1 residual-std "noise" band around the point estimate — how much of the daily
+    // move this factor has never explained, historically. Not a formal confidence
+    // interval (daily equity returns are fatter-tailed than Gaussian), so it's labeled
+    // as a typical range rather than a stated probability.
+    band: scenarioBand
+      ? { show: true, low: pct(scenarioBand.low * 100), high: pct(scenarioBand.high * 100) }
+      : { show: false, low: '—', high: '—' },
+    // Real backtest: the K actual historical days whose factor move was closest to this
+    // shock, and what the asset actually did on them — contrasted against the linear
+    // point estimate above so a straight-line extrapolation can't hide as "the model."
+    analog: scenarioAnalog
+      ? {
+          ready: true,
+          count: scenarioAnalog.count,
+          closestPct: pct(scenarioAnalog.closestFactorReturn * 100),
+          meanPct: pct(scenarioAnalog.meanAssetReturn * 100),
+          medianPct: pct(scenarioAnalog.medianAssetReturn * 100),
+          rangeLow: pct(scenarioAnalog.minAssetReturn * 100),
+          rangeHigh: pct(scenarioAnalog.maxAssetReturn * 100),
+          read:
+            'On the ' + scenarioAnalog.count + ' trading days in the last year when ' + scenarioFactorDef.proxy
+            + ' moved closest to this (nearest actual day: ' + pct(scenarioAnalog.closestFactorReturn * 100) + '), '
+            + lensSym + ' actually returned ' + pct(scenarioAnalog.medianAssetReturn * 100) + ' on the median day, ranging '
+            + pct(scenarioAnalog.minAssetReturn * 100) + ' to ' + pct(scenarioAnalog.maxAssetReturn * 100) + '.',
+        }
+      : { ready: false, count: 0, closestPct: '—', meanPct: '—', medianPct: '—', rangeLow: '—', rangeHigh: '—', read: '' },
+    extrapolation: scenarioIsExtrapolation
+      ? {
+          show: true,
+          message:
+            'This shock implies a ' + Math.abs((scenarioOutcome?.proxyReturn ?? 0) * 100).toFixed(1) + '% single-day move in ' + scenarioFactorDef.proxy
+            + ' — bigger than any day observed in the last year (largest was ' + (scenarioMaxObserved * 100).toFixed(1) + '%)'
+            + '. Treat the prediction above as an extrapolation beyond the data, not a validated estimate.',
+        }
+      : { show: false, message: '' },
     bookImpact: {
       show: !bookEmpty,
       dollarTotal: (scenarioDollarTotal >= 0 ? '+' : '−') + money(Math.abs(scenarioDollarTotal)),

@@ -87,6 +87,67 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
         ))}
         <span style={sans(9.5, 400, 'oklch(0.48 0 0)', 1.45)}>Beta is weighted by each holding's share of book value. Above 1.2 means the book amplifies that factor.</span>
       </div>
+
+      <span style={mono(10.5, 600, 'oklch(0.62 0 0)', { letterSpacing: '.12em', marginTop: 4 })}>WHAT-IF · SCENARIO</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '13px 12px', border: '1px solid rgba(255,255,255,.1)', borderLeft: '3px solid oklch(0.78 0.13 75)', borderRadius: 12, background: '#0a0a0a' }}>
+        <span style={sans(11, 400, 'oklch(0.62 0 0)', 1.45)}>Pick a factor, drag the slider to a hypothetical move, and see the modeled price impact on {vm.sym} — and across your book — from its regressed beta.</span>
+
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+          {vm.scenario.picker.map((p) => (
+            <button key={p.id} onClick={p.pick} style={{ ...resetBtn, flex: 'none', minHeight: 32, padding: '0 11px', display: 'flex', alignItems: 'center', borderRadius: 8, background: p.bg, ...mono(10, 600, p.fg, { letterSpacing: '.02em' }) }}>{p.label}</button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={sans(12.5, 600, '#f0f0f0')}>{vm.scenario.factorLabel}</span>
+            <span style={mono(13, 600, 'oklch(0.78 0.13 75)')}>{vm.scenario.shockLabel}</span>
+          </div>
+          <input
+            type="range" className="basis-slider"
+            min={vm.scenario.min} max={vm.scenario.max} step={vm.scenario.step} value={vm.scenario.shock}
+            onChange={vm.scenario.onShockChange}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={mono(8.5, 400, 'oklch(0.46 0 0)')}>{vm.scenario.min}{vm.scenario.unit === 'bps' ? ' bps' : '%'}</span>
+            <span style={mono(8.5, 400, 'oklch(0.46 0 0)')}>{vm.scenario.max}{vm.scenario.unit === 'bps' ? ' bps' : '%'}</span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 7 }}>
+          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,.045)' }}>
+            <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>{vm.sym} PREDICTED MOVE</span>
+            <span style={mono(17, 600, vm.scenario.assetColor)}>{vm.scenario.assetPct}</span>
+          </span>
+          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,.045)' }}>
+            <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>{vm.scenario.proxy} IMPLIED MOVE</span>
+            <span style={mono(17, 600, '#e9e9e9')}>{vm.scenario.proxyPct}</span>
+          </span>
+        </div>
+
+        <span style={sans(11.5, 400, 'oklch(0.72 0 0)', 1.5)}>{vm.scenario.read}</span>
+        {!vm.scenario.ready && <span style={mono(9.5, 400, 'oklch(0.5 0 0)', { lineHeight: 1.4 })}>{vm.scenario.note}</span>}
+
+        {vm.scenario.bookImpact.show && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.07)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={mono(9.5, 600, 'oklch(0.6 0 0)', { letterSpacing: '.1em' })}>BOOK IMPACT · {vm.scenario.bookImpact.coverage}</span>
+              <span style={mono(14, 600, vm.scenario.bookImpact.dollarColor)}>{vm.scenario.bookImpact.dollarTotal}</span>
+            </div>
+            {vm.scenario.bookImpact.rows.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {vm.scenario.bookImpact.rows.map((r) => (
+                  <div key={r.sym} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <span style={{ width: 52, flex: 'none', ...mono(11, 600, '#e6e6e6') }}>{r.sym}</span>
+                    <span style={{ flex: 1, ...mono(10.5, 400, r.pctColor) }}>{r.pct}</span>
+                    <span style={mono(11, 600, r.pctColor)}>{r.dollar}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

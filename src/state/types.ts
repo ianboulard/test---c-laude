@@ -81,6 +81,8 @@ export interface AppState {
   form: FormState
   positions: Position[]
   authFailed: boolean
+  scenarioFactor: string
+  scenarioShock: number
 }
 
 export const initialState: AppState = {
@@ -100,4 +102,6 @@ export const initialState: AppState = {
   form: { sym: '', shares: '', price: '', date: '', kind: 'real' },
   positions: [],
   authFailed: false,
+  scenarioFactor: 'rates',
+  scenarioShock: -25,
 }

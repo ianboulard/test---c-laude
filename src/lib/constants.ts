@@ -62,6 +62,14 @@ export interface Factor {
   label: string
   proxy: string
   plain: string
+  /** Scenario-slider unit. 'pct' (default) shocks the proxy ETF directly; 'bps' shocks a
+   *  rate in basis points, converted to a proxy price move via `duration`. */
+  unit?: 'pct' | 'bps'
+  /** Effective duration of the rate proxy (years), for the bps -> % price-move approximation
+   *  ΔP/P ≈ −duration × Δyield. Only meaningful when unit is 'bps'. */
+  duration?: number
+  /** [min, max, step, default] for the scenario slider, in the factor's unit. */
+  shockRange?: [number, number, number, number]
 }
 
 export const FACTORS: Factor[] = [
@@ -70,11 +78,19 @@ export const FACTORS: Factor[] = [
   { id: 'semis', label: 'Semis', proxy: 'SMH', plain: 'the semiconductor cycle' },
   { id: 'energy', label: 'Energy', proxy: 'XLE', plain: 'oil and gas' },
   { id: 'clean', label: 'Clean energy', proxy: 'ICLN', plain: 'renewables and solar' },
-  { id: 'rates', label: 'Rates', proxy: 'TLT', plain: 'long-duration bonds — a proxy for interest-rate moves' },
+  {
+    id: 'rates', label: 'Rates', proxy: 'TLT', plain: 'long-duration bonds — a proxy for interest-rate moves',
+    unit: 'bps', duration: 17, shockRange: [-100, 100, 5, -25],
+  },
   { id: 'value', label: 'Value', proxy: 'IWD', plain: 'cheap, slower-growing companies' },
   { id: 'size', label: 'Small cap', proxy: 'IWM', plain: 'smaller companies' },
+  { id: 'consumer', label: 'Consumer spending', proxy: 'XLY', plain: 'discretionary consumer spending and retail' },
+  { id: 'commodities', label: 'Commodity prices', proxy: 'DBC', plain: 'broad commodities — energy, metals and agriculture' },
+  { id: 'intl', label: 'International', proxy: 'EFA', plain: 'developed international markets outside the US, and dollar strength against them' },
 ]
 export const FACTOR_BY_ID: Record<string, Factor> = Object.fromEntries(FACTORS.map((f) => [f.id, f]))
+
+export const DEFAULT_SHOCK_RANGE: [number, number, number, number] = [-20, 20, 1, 10]
 
 // Which factors a research topic implicates — ties the literature to real exposure.
 const TOPIC_FACTORS: [RegExp, string[]][] = [
@@ -86,6 +102,9 @@ const TOPIC_FACTORS: [RegExp, string[]][] = [
   [/monetary|interest rate|central bank|capital expenditure|investment/i, ['rates', 'mkt']],
   [/concentration|portfolio|diversif|correlation/i, ['mkt', 'size']],
   [/valuation|margin|earnings|profitab/i, ['value', 'mkt']],
+  [/consumer spending|retail sales|discretionary spending|household consumption/i, ['consumer', 'mkt']],
+  [/commodity|commodities|metals|agricultural|raw material/i, ['commodities', 'energy']],
+  [/international|emerging market|foreign exchange|currency|tariff|global trade/i, ['intl', 'mkt']],
 ]
 export function factorsForTopic(text: string): string[] {
   const out: string[] = []

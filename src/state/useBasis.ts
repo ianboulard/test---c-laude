@@ -5,7 +5,7 @@ import type { BasisPersisted, Position } from '../lib/types'
 import * as Alpaca from '../lib/alpaca'
 import * as Finnhub from '../lib/finnhub'
 import { fetchPapers as fetchPapersApi, fetchTickerResearch as fetchTickerResearchApi } from '../lib/papers'
-import { FACTOR_BY_ID, type RangeKey } from '../lib/constants'
+import { FACTOR_BY_ID, DEFAULT_SHOCK_RANGE, type RangeKey } from '../lib/constants'
 
 type Updater = (s: AppState) => Partial<AppState>
 
@@ -134,10 +134,22 @@ export function useBasis() {
   const cacheFactorBars = useCallback(() => {
     if (!hasAlpaca()) return
     const s = stateRef.current
-    const sel = s.factorSel.map((id) => FACTOR_BY_ID[id]?.proxy).filter((x): x is string => !!x)
-    sel.forEach((p, i) => setTimeout(() => fetchBars(p, '1Y'), i * 240))
+    const sel = new Set(s.factorSel.map((id) => FACTOR_BY_ID[id]?.proxy).filter((x): x is string => !!x))
+    const scenarioProxy = FACTOR_BY_ID[s.scenarioFactor]?.proxy
+    if (scenarioProxy) sel.add(scenarioProxy)
+    Array.from(sel).forEach((p, i) => setTimeout(() => fetchBars(p, '1Y'), i * 240))
     fetchBars(s.lensTicker || s.ticker, '1Y')
   }, [fetchBars, hasAlpaca])
+
+  const setScenarioFactor = useCallback(
+    (id: string) => {
+      const factor = FACTOR_BY_ID[id]
+      const defaultShock = factor?.shockRange?.[3] ?? DEFAULT_SHOCK_RANGE[3]
+      update({ scenarioFactor: id, scenarioShock: defaultShock })
+      cacheFactorBars()
+    },
+    [cacheFactorBars, update]
+  )
 
   const cacheBookBars = useCallback(() => {
     if (!hasAlpaca()) return
@@ -509,6 +521,7 @@ export function useBasis() {
     fetchBars,
     cacheFactorBars,
     cacheBookBars,
+    setScenarioFactor,
     searchSymbols,
     lensSearch,
     testAlpacaAction,

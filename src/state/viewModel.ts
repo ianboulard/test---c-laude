@@ -4,9 +4,10 @@ import type { Position } from '../lib/types'
 import { money, px, pct, hashSeed, series, linePoints } from '../lib/format'
 import { clearBasis } from '../lib/storage'
 import { regress, factorPlain } from '../lib/regress'
+import { runScenario, shockLabel as formatShockLabel } from '../lib/scenario'
 import {
   UP, DOWN, BLUE, AMBER, SECTOR_COLORS, SECTOR_OPTIONS, RANGE_N, FACTORS, FACTOR_BY_ID,
-  factorsForTopic, RES_FILTERS, RES_BLURB, NEWS, RECOS, BASIS_SCORE, BASIS_WHY, MAP_GROUPS,
+  DEFAULT_SHOCK_RANGE, factorsForTopic, RES_FILTERS, RES_BLURB, NEWS, RECOS, BASIS_SCORE, BASIS_WHY, MAP_GROUPS,
   type RangeKey,
 } from '../lib/constants'
 
@@ -363,8 +364,75 @@ export function buildViewModel(b: Basis) {
     }
   })
 
+  // ── scenario: "what if X factor moved by N" slider ──────────────────────
+  const scenarioFactorDef = FACTOR_BY_ID[st.scenarioFactor] || FACTOR_BY_ID.rates
+  const scenarioShock = st.scenarioShock
+  const scenarioProxySeries = barsOf(scenarioFactorDef.proxy)
+  const scenarioReg = lensSeries && scenarioProxySeries ? regress(lensSeries, scenarioProxySeries) : null
+  const scenarioOutcome = scenarioReg ? runScenario(scenarioFactorDef, scenarioShock, scenarioReg) : null
+  const [shockMin, shockMax, shockStep] = scenarioFactorDef.shockRange || DEFAULT_SHOCK_RANGE
+
+  const scenarioBookRows = pos
+    .map((p) => {
+      const ps = barsOf(p.sym)
+      const r = ps && scenarioProxySeries ? regress(ps, scenarioProxySeries) : null
+      if (!r) return null
+      const outcome = runScenario(scenarioFactorDef, scenarioShock, r)
+      return { sym: p.sym, value: p.value, pctVal: outcome.assetReturn * 100, dollar: p.value * outcome.assetReturn }
+    })
+    .filter((x): x is { sym: string; value: number; pctVal: number; dollar: number } => !!x)
+  const scenarioDollarTotal = scenarioBookRows.reduce((a, r) => a + r.dollar, 0)
+
+  const scenario = {
+    factorId: scenarioFactorDef.id,
+    factorLabel: scenarioFactorDef.label,
+    proxy: scenarioFactorDef.proxy,
+    plain: scenarioFactorDef.plain,
+    unit: scenarioFactorDef.unit || 'pct',
+    shock: scenarioShock,
+    shockLabel: formatShockLabel(scenarioFactorDef, scenarioShock),
+    min: shockMin, max: shockMax, step: shockStep,
+    onShockChange: (e: React.ChangeEvent<HTMLInputElement>) => b.set('scenarioShock', Number(e.target.value)),
+    picker: FACTORS.map((f) => ({
+      id: f.id, label: f.label,
+      pick: () => b.setScenarioFactor(f.id),
+      bg: f.id === scenarioFactorDef.id ? 'rgba(255,255,255,.13)' : 'rgba(255,255,255,.035)',
+      fg: f.id === scenarioFactorDef.id ? '#ffffff' : 'oklch(0.6 0 0)',
+    })),
+    ready: !!scenarioOutcome,
+    note: scenarioOutcome
+      ? undefined
+      : anyLoading ? 'loading daily bars…'
+        : st.authFailed ? 'Alpaca rejected your keys — no bars to model this on'
+          : hasAlpaca ? 'not enough overlapping history yet for ' + lensSym + ' vs ' + scenarioFactorDef.proxy
+            : 'connect Alpaca to run what-if scenarios',
+    assetPct: scenarioOutcome ? pct(scenarioOutcome.assetReturn * 100) : '—',
+    assetColor: scenarioOutcome ? (scenarioOutcome.assetReturn >= 0 ? UP : DOWN) : 'oklch(0.5 0 0)',
+    proxyPct: scenarioOutcome ? pct(scenarioOutcome.proxyReturn * 100) : '—',
+    read: scenarioOutcome
+      ? lensSym + ' would move about ' + pct(scenarioOutcome.assetReturn * 100) + ' if ' + scenarioFactorDef.label.toLowerCase()
+        + ' moved ' + formatShockLabel(scenarioFactorDef, scenarioShock) + ' (' + scenarioFactorDef.proxy + ' ' + pct(scenarioOutcome.proxyReturn * 100)
+        + '), based on its regressed beta of ' + (scenarioReg!.beta >= 0 ? '+' : '−') + Math.abs(scenarioReg!.beta).toFixed(2) + '.'
+      : 'Pick a factor and load bars to model a hypothetical move.',
+    bookImpact: {
+      show: !bookEmpty,
+      dollarTotal: (scenarioDollarTotal >= 0 ? '+' : '−') + money(Math.abs(scenarioDollarTotal)),
+      dollarColor: scenarioDollarTotal >= 0 ? UP : DOWN,
+      coverage: scenarioBookRows.length + '/' + pos.length + ' holdings priced in',
+      rows: scenarioBookRows
+        .slice()
+        .sort((a, c) => Math.abs(c.dollar) - Math.abs(a.dollar))
+        .map((r) => ({
+          sym: r.sym,
+          pct: pct(r.pctVal), pctColor: r.pctVal >= 0 ? UP : DOWN,
+          dollar: (r.dollar >= 0 ? '+' : '−') + money(Math.abs(r.dollar)),
+        })),
+    },
+  }
+
   const lens = {
     sym: lensSym,
+    scenario,
     ready: explained.length > 0,
     note: explained.length
       ? explained.length + ' of ' + lensRows.length + ' factors regressed on 1Y daily bars'

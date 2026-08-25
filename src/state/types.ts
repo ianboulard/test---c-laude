@@ -81,8 +81,10 @@ export interface AppState {
   form: FormState
   positions: Position[]
   authFailed: boolean
-  scenarioFactor: string
-  scenarioShock: number
+  /** Multi-factor what-if builder: factor id -> hypothetical shock value (in that
+   *  factor's own unit — bps for rates, percent for everything else). Several can be
+   *  active at once, e.g. { semis: 2, tech: 1 } for "SOXX +2% and QQQ +1% together." */
+  scenarioShocks: Record<string, number>
 }
 
 export const initialState: AppState = {
@@ -102,6 +104,5 @@ export const initialState: AppState = {
   form: { sym: '', shares: '', price: '', date: '', kind: 'real' },
   positions: [],
   authFailed: false,
-  scenarioFactor: 'rates',
-  scenarioShock: -25,
+  scenarioShocks: { rates: -25, semis: 10 },
 }

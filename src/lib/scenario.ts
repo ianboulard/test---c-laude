@@ -1,5 +1,6 @@
 import type { Factor } from './constants'
 import type { RegressionResult } from './regress'
+import type { MultiFactorResult } from './multiRegress'
 
 /**
  * Convert a scenario slider value into a fractional return on the factor's proxy ETF.
@@ -47,8 +48,41 @@ export interface ConfidenceBand {
  * rather than claiming a formal confidence level, since daily equity returns are
  * fatter-tailed than the normal distribution a strict Gaussian CI would assume.
  */
-export function confidenceBand(regression: RegressionResult, assetReturn: number, z = 1): ConfidenceBand {
+export function confidenceBand(regression: { residualStd: number }, assetReturn: number, z = 1): ConfidenceBand {
   return { low: assetReturn - z * regression.residualStd, high: assetReturn + z * regression.residualStd }
+}
+
+export interface MultiScenarioOutcome {
+  /** Combined predicted fractional return across every shocked factor together. */
+  assetReturn: number
+  /** Per-factor breakdown of how much of that combined number each shock contributed —
+   *  so "the model" never hands back an unexplained single number. */
+  perFactor: Record<string, { proxyReturn: number; contribution: number }>
+}
+
+/**
+ * Combine several simultaneous factor shocks through an already-fitted joint (ridge)
+ * model: predicted = Σ βᵢ · proxyReturnᵢ. This is the direct multi-factor analogue of
+ * `runScenario` — same per-factor shock-to-proxy-return conversion, just summed across
+ * whatever's in `shocksByFactorId` using the joint betas instead of one univariate beta.
+ */
+export function runMultiScenario(
+  shocksByFactorId: Record<string, number>,
+  factorDefsById: Record<string, Factor>,
+  multiFit: MultiFactorResult
+): MultiScenarioOutcome {
+  const perFactor: Record<string, { proxyReturn: number; contribution: number }> = {}
+  let assetReturn = 0
+  Object.keys(shocksByFactorId).forEach((id) => {
+    const factor = factorDefsById[id]
+    if (!factor) return
+    const beta = multiFit.betas[id] ?? 0
+    const proxyReturn = shockToProxyReturn(factor, shocksByFactorId[id])
+    const contribution = beta * proxyReturn
+    perFactor[id] = { proxyReturn, contribution }
+    assetReturn += contribution
+  })
+  return { assetReturn, perFactor }
 }
 
 export function shockLabel(factor: Factor, shock: number): string {

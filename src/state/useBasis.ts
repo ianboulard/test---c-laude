@@ -135,20 +135,40 @@ export function useBasis() {
     if (!hasAlpaca()) return
     const s = stateRef.current
     const sel = new Set(s.factorSel.map((id) => FACTOR_BY_ID[id]?.proxy).filter((x): x is string => !!x))
-    const scenarioProxy = FACTOR_BY_ID[s.scenarioFactor]?.proxy
-    if (scenarioProxy) sel.add(scenarioProxy)
+    Object.keys(s.scenarioShocks).forEach((id) => {
+      const proxy = FACTOR_BY_ID[id]?.proxy
+      if (proxy) sel.add(proxy)
+    })
     Array.from(sel).forEach((p, i) => setTimeout(() => fetchBars(p, '1Y'), i * 240))
     fetchBars(s.lensTicker || s.ticker, '1Y')
   }, [fetchBars, hasAlpaca])
 
-  const setScenarioFactor = useCallback(
+  const addScenarioFactor = useCallback(
     (id: string) => {
       const factor = FACTOR_BY_ID[id]
       const defaultShock = factor?.shockRange?.[3] ?? DEFAULT_SHOCK_RANGE[3]
-      update({ scenarioFactor: id, scenarioShock: defaultShock })
+      update((s) => ({ scenarioShocks: { ...s.scenarioShocks, [id]: defaultShock } }))
       cacheFactorBars()
     },
     [cacheFactorBars, update]
+  )
+
+  const removeScenarioFactor = useCallback(
+    (id: string) => {
+      update((s) => {
+        const next = { ...s.scenarioShocks }
+        delete next[id]
+        return { scenarioShocks: next }
+      })
+    },
+    [update]
+  )
+
+  const setScenarioShockValue = useCallback(
+    (id: string, value: number) => {
+      update((s) => ({ scenarioShocks: { ...s.scenarioShocks, [id]: value } }))
+    },
+    [update]
   )
 
   const cacheBookBars = useCallback(() => {
@@ -521,7 +541,9 @@ export function useBasis() {
     fetchBars,
     cacheFactorBars,
     cacheBookBars,
-    setScenarioFactor,
+    addScenarioFactor,
+    removeScenarioFactor,
+    setScenarioShockValue,
     searchSymbols,
     lensSearch,
     testAlpacaAction,

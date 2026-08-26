@@ -4,8 +4,9 @@ import type { Position } from '../lib/types'
 import { money, px, pct, hashSeed, series, linePoints } from '../lib/format'
 import { clearBasis } from '../lib/storage'
 import { regress, factorPlain } from '../lib/regress'
-import { runScenario, confidenceBand, shockLabel as formatShockLabel } from '../lib/scenario'
-import { historicalAnalogs, isExtrapolation, maxObservedMove } from '../lib/backtest'
+import { multiFactorFit } from '../lib/multiRegress'
+import { runMultiScenario, confidenceBand, shockLabel as formatShockLabel } from '../lib/scenario'
+import { multiHistoricalAnalogs, multiExtrapolationFlags, maxObservedMove } from '../lib/backtest'
 import {
   UP, DOWN, BLUE, AMBER, SECTOR_COLORS, SECTOR_OPTIONS, RANGE_N, FACTORS, FACTOR_BY_ID,
   DEFAULT_SHOCK_RANGE, factorsForTopic, RES_FILTERS, RES_BLURB, NEWS, RECOS, BASIS_SCORE, BASIS_WHY, MAP_GROUPS,
@@ -315,7 +316,7 @@ export function buildViewModel(b: Basis) {
     }),
   }))
 
-  // ── factor lens ─────────────────────────────────────────────────────────
+  // ── factor lens: per-factor (marginal) breakdown ────────────────────────
   const lensSym = st.lensTicker || (pos[0] && pos[0].sym) || st.ticker || 'AAPL'
   const barsOf = (sym: string) => st.bars[sym + '|1Y']?.s
   const lensSeries = barsOf(lensSym)
@@ -339,19 +340,50 @@ export function buildViewModel(b: Basis) {
       drop: () => b.update((s2) => ({ factorSel: s2.factorSel.filter((x) => x !== id) })),
     }
   })
-  const explained = lensRows.filter((r) => r.ok)
-  const topFactor = explained.slice().sort((a, c) => c.r2w - a.r2w)[0]
+
+  // ── joint (multi-factor) attribution ─────────────────────────────────────
+  // Crediting whichever single factor happens to explain the most double-counts when
+  // factors overlap (SOXX and QQQ both "explain" the same semiconductor move). Fitting
+  // all currently-selected factors together instead gives one number — the joint R² —
+  // that stays honest regardless of how correlated the factor set is.
+  const jointFactorSeries: Record<string, number[]> = {}
+  st.factorSel.forEach((id) => {
+    const f = FACTOR_BY_ID[id]
+    const s2 = f && barsOf(f.proxy)
+    if (s2) jointFactorSeries[id] = s2
+  })
+  const jointFit = lensSeries && Object.keys(jointFactorSeries).length ? multiFactorFit(lensSeries, jointFactorSeries) : null
+  const jointFactorCount = jointFit ? jointFit.factorIds.length : 0
+  const jointExplainedPct = jointFit ? Math.round(jointFit.r2 * 100) : 0
+  const jointOverlaps = (jointFit ? jointFit.correlations : [])
+    .filter((c) => Math.abs(c.corr) >= 0.6)
+    .map((c) => {
+      const aLabel = FACTOR_BY_ID[c.a]?.label || c.a
+      const bLabel = FACTOR_BY_ID[c.b]?.label || c.b
+      return {
+        text: aLabel + ' and ' + bLabel + ' overlap heavily (' + (c.corr >= 0 ? '+' : '−') + Math.abs(c.corr).toFixed(2)
+          + ' correlated) — their individual coefficients can trade credit with each other; the combined figure above is not affected.',
+      }
+    })
+
+  // ── book-level roll-up: is a "diversified by ticker count" book really one bet? ──
+  const bookJointFits = pos
+    .map((p) => {
+      const s2 = barsOf(p.sym)
+      const fit = s2 && Object.keys(jointFactorSeries).length ? multiFactorFit(s2, jointFactorSeries) : null
+      return fit ? { p, fit } : null
+    })
+    .filter((x): x is { p: Valued; fit: NonNullable<typeof jointFit> } => !!x)
+  const bookJointWeight = bookJointFits.reduce((s, x) => s + x.p.value, 0)
+  const bookJointR2 = bookJointWeight > 0 ? bookJointFits.reduce((s, x) => s + x.p.value * x.fit.r2, 0) / bookJointWeight : null
 
   const bookExposure = st.factorSel.map((id) => {
     const f = FACTOR_BY_ID[id]
-    const fs = barsOf(f.proxy)
     let wsum = 0, acc = 0, covered = 0
-    pos.forEach((p) => {
-      const s2 = barsOf(p.sym)
-      const r = s2 && fs ? regress(s2, fs) : null
-      if (!r) return
+    bookJointFits.forEach(({ p, fit }) => {
+      if (!(id in fit.betas)) return
       const w = p.value / (totalValue || 1)
-      acc += w * r.beta
+      acc += w * fit.betas[id]
       wsum += w
       covered++
     })
@@ -365,95 +397,111 @@ export function buildViewModel(b: Basis) {
     }
   })
 
-  // ── scenario: "what if X factor moved by N" slider ──────────────────────
-  const scenarioFactorDef = FACTOR_BY_ID[st.scenarioFactor] || FACTOR_BY_ID.rates
-  const scenarioShock = st.scenarioShock
-  const scenarioProxySeries = barsOf(scenarioFactorDef.proxy)
-  const scenarioReg = lensSeries && scenarioProxySeries ? regress(lensSeries, scenarioProxySeries) : null
-  const scenarioOutcome = scenarioReg ? runScenario(scenarioFactorDef, scenarioShock, scenarioReg) : null
-  const scenarioBand = scenarioReg && scenarioOutcome ? confidenceBand(scenarioReg, scenarioOutcome.assetReturn, 1) : null
-  const scenarioAnalog = scenarioReg && scenarioOutcome
-    ? historicalAnalogs(scenarioReg.factorRets, scenarioReg.assetRets, scenarioOutcome.proxyReturn, 15)
-    : null
-  const scenarioIsExtrapolation = scenarioReg && scenarioOutcome ? isExtrapolation(scenarioReg.factorRets, scenarioOutcome.proxyReturn) : false
-  const scenarioMaxObserved = scenarioReg ? maxObservedMove(scenarioReg.factorRets) : 0
-  const [shockMin, shockMax, shockStep] = scenarioFactorDef.shockRange || DEFAULT_SHOCK_RANGE
+  // ── what-if: multi-factor scenario builder ──────────────────────────────
+  // "If SOXX moves +2% AND QQQ moves +1%" — several simultaneous shocks combined
+  // through the joint (ridge) model fit specifically over the factors in play here,
+  // which may differ from the per-factor breakdown selection above.
+  const scenarioFactorIds = Object.keys(st.scenarioShocks)
+  const scenarioFactorSeries: Record<string, number[]> = {}
+  scenarioFactorIds.forEach((id) => {
+    const f = FACTOR_BY_ID[id]
+    const s2 = f && barsOf(f.proxy)
+    if (s2) scenarioFactorSeries[id] = s2
+  })
+  const scenarioFit = lensSeries && Object.keys(scenarioFactorSeries).length ? multiFactorFit(lensSeries, scenarioFactorSeries) : null
+  const scenarioOutcome = scenarioFit ? runMultiScenario(st.scenarioShocks, FACTOR_BY_ID, scenarioFit) : null
+  const scenarioBand = scenarioFit && scenarioOutcome ? confidenceBand(scenarioFit, scenarioOutcome.assetReturn, 1) : null
+  const scenarioTargets: Record<string, number> = {}
+  scenarioFactorIds.forEach((id) => { scenarioTargets[id] = scenarioOutcome?.perFactor[id]?.proxyReturn ?? 0 })
+  const scenarioAnalog = scenarioFit ? multiHistoricalAnalogs(scenarioFit.factorRetsById, scenarioFit.assetRets, scenarioTargets, 15) : null
+  const scenarioExtrapolatedIds = scenarioFit ? multiExtrapolationFlags(scenarioFit.factorRetsById, scenarioTargets) : []
 
   const scenarioBookRows = pos
     .map((p) => {
-      const ps = barsOf(p.sym)
-      const r = ps && scenarioProxySeries ? regress(ps, scenarioProxySeries) : null
-      if (!r) return null
-      const outcome = runScenario(scenarioFactorDef, scenarioShock, r)
+      const s2 = barsOf(p.sym)
+      const fit = s2 && Object.keys(scenarioFactorSeries).length ? multiFactorFit(s2, scenarioFactorSeries) : null
+      if (!fit) return null
+      const outcome = runMultiScenario(st.scenarioShocks, FACTOR_BY_ID, fit)
       return { sym: p.sym, value: p.value, pctVal: outcome.assetReturn * 100, dollar: p.value * outcome.assetReturn }
     })
     .filter((x): x is { sym: string; value: number; pctVal: number; dollar: number } => !!x)
   const scenarioDollarTotal = scenarioBookRows.reduce((a, r) => a + r.dollar, 0)
 
+  const scenarioReadPhrase = scenarioFactorIds
+    .map((id) => FACTOR_BY_ID[id].label.toLowerCase() + ' moved ' + formatShockLabel(FACTOR_BY_ID[id], st.scenarioShocks[id]))
+    .join(' and ')
+
   const scenario = {
-    factorId: scenarioFactorDef.id,
-    factorLabel: scenarioFactorDef.label,
-    proxy: scenarioFactorDef.proxy,
-    plain: scenarioFactorDef.plain,
-    unit: scenarioFactorDef.unit || 'pct',
-    shock: scenarioShock,
-    shockLabel: formatShockLabel(scenarioFactorDef, scenarioShock),
-    min: shockMin, max: shockMax, step: shockStep,
-    onShockChange: (e: React.ChangeEvent<HTMLInputElement>) => b.set('scenarioShock', Number(e.target.value)),
-    picker: FACTORS.map((f) => ({
-      id: f.id, label: f.label,
-      pick: () => b.setScenarioFactor(f.id),
-      bg: f.id === scenarioFactorDef.id ? 'rgba(255,255,255,.13)' : 'rgba(255,255,255,.035)',
-      fg: f.id === scenarioFactorDef.id ? '#ffffff' : 'oklch(0.6 0 0)',
-    })),
+    hasFactors: scenarioFactorIds.length > 0,
+    factors: scenarioFactorIds.map((id) => {
+      const f = FACTOR_BY_ID[id]
+      const [min, max, step] = f.shockRange || DEFAULT_SHOCK_RANGE
+      const contribution = scenarioOutcome?.perFactor[id]?.contribution
+      return {
+        id, label: f.label, proxy: f.proxy, unit: f.unit || 'pct',
+        shock: st.scenarioShocks[id],
+        shockLabel: formatShockLabel(f, st.scenarioShocks[id]),
+        min, max, step,
+        onShockChange: (e: React.ChangeEvent<HTMLInputElement>) => b.setScenarioShockValue(id, Number(e.target.value)),
+        remove: () => b.removeScenarioFactor(id),
+        contributionPct: contribution !== undefined ? pct(contribution * 100) : '—',
+        contributionColor: contribution !== undefined ? (contribution >= 0 ? UP : DOWN) : 'oklch(0.5 0 0)',
+        extrapolated: scenarioExtrapolatedIds.includes(id),
+        maxObservedPct: scenarioFit ? pct(maxObservedMove(scenarioFit.factorRetsById[id] || []) * 100) : '—',
+      }
+    }),
+    addPicker: FACTORS.filter((f) => !(f.id in st.scenarioShocks)).map((f) => ({ id: f.id, label: f.label, pick: () => b.addScenarioFactor(f.id) })),
     ready: !!scenarioOutcome,
-    note: scenarioOutcome
-      ? undefined
-      : anyLoading ? 'loading daily bars…'
-        : st.authFailed ? 'Alpaca rejected your keys — no bars to model this on'
-          : hasAlpaca ? 'not enough overlapping history yet for ' + lensSym + ' vs ' + scenarioFactorDef.proxy
-            : 'connect Alpaca to run what-if scenarios',
+    note:
+      scenarioFactorIds.length === 0
+        ? 'Add a factor below to build a scenario.'
+        : scenarioOutcome
+          ? undefined
+          : anyLoading ? 'loading daily bars…'
+            : st.authFailed ? 'Alpaca rejected your keys — no bars to model this on'
+              : hasAlpaca ? 'not enough overlapping history yet for ' + lensSym + ' vs ' + scenarioFactorIds.map((id) => FACTOR_BY_ID[id].proxy).join('/')
+                : 'connect Alpaca to run what-if scenarios',
     assetPct: scenarioOutcome ? pct(scenarioOutcome.assetReturn * 100) : '—',
     assetColor: scenarioOutcome ? (scenarioOutcome.assetReturn >= 0 ? UP : DOWN) : 'oklch(0.5 0 0)',
-    proxyPct: scenarioOutcome ? pct(scenarioOutcome.proxyReturn * 100) : '—',
     read: scenarioOutcome
-      ? lensSym + ' would move about ' + pct(scenarioOutcome.assetReturn * 100) + ' if ' + scenarioFactorDef.label.toLowerCase()
-        + ' moved ' + formatShockLabel(scenarioFactorDef, scenarioShock) + ' (' + scenarioFactorDef.proxy + ' ' + pct(scenarioOutcome.proxyReturn * 100)
-        + '), based on its regressed beta of ' + (scenarioReg!.beta >= 0 ? '+' : '−') + Math.abs(scenarioReg!.beta).toFixed(2) + '.'
-      : 'Pick a factor and load bars to model a hypothetical move.',
-    // ± 1 residual-std "noise" band around the point estimate — how much of the daily
-    // move this factor has never explained, historically. Not a formal confidence
-    // interval (daily equity returns are fatter-tailed than Gaussian), so it's labeled
-    // as a typical range rather than a stated probability.
+      ? lensSym + ' would move about ' + pct(scenarioOutcome.assetReturn * 100) + ' if ' + scenarioReadPhrase
+        + ', based on its jointly-fit historical relationship to ' + (scenarioFactorIds.length === 1 ? 'that factor' : 'these factors') + '.'
+      : 'Pick at least one factor and load bars to model a hypothetical move.',
+    // ± 1 residual-std "noise" band around the point estimate. Not a formal confidence
+    // interval (daily equity returns are fatter-tailed than Gaussian) — labeled as a
+    // typical range rather than a stated probability.
     band: scenarioBand
       ? { show: true, low: pct(scenarioBand.low * 100), high: pct(scenarioBand.high * 100) }
       : { show: false, low: '—', high: '—' },
-    // Real backtest: the K actual historical days whose factor move was closest to this
-    // shock, and what the asset actually did on them — contrasted against the linear
-    // point estimate above so a straight-line extrapolation can't hide as "the model."
+    // Real backtest: the K actual historical days whose COMBINATION of factor moves was
+    // closest to this scenario, and what the asset actually did on them.
     analog: scenarioAnalog
       ? {
           ready: true,
           count: scenarioAnalog.count,
-          closestPct: pct(scenarioAnalog.closestFactorReturn * 100),
           meanPct: pct(scenarioAnalog.meanAssetReturn * 100),
           medianPct: pct(scenarioAnalog.medianAssetReturn * 100),
           rangeLow: pct(scenarioAnalog.minAssetReturn * 100),
           rangeHigh: pct(scenarioAnalog.maxAssetReturn * 100),
+          matchNote:
+            scenarioAnalog.closestDistance <= 0.5
+              ? 'a close historical match'
+              : scenarioAnalog.closestDistance <= 1.5
+                ? 'a reasonable historical match'
+                : 'not a close historical match — treat with extra caution',
           read:
-            'On the ' + scenarioAnalog.count + ' trading days in the last year when ' + scenarioFactorDef.proxy
-            + ' moved closest to this (nearest actual day: ' + pct(scenarioAnalog.closestFactorReturn * 100) + '), '
+            'On the ' + scenarioAnalog.count + ' trading days in the last year when this combination of factors moved closest to the scenario above, '
             + lensSym + ' actually returned ' + pct(scenarioAnalog.medianAssetReturn * 100) + ' on the median day, ranging '
             + pct(scenarioAnalog.minAssetReturn * 100) + ' to ' + pct(scenarioAnalog.maxAssetReturn * 100) + '.',
         }
-      : { ready: false, count: 0, closestPct: '—', meanPct: '—', medianPct: '—', rangeLow: '—', rangeHigh: '—', read: '' },
-    extrapolation: scenarioIsExtrapolation
+      : { ready: false, count: 0, meanPct: '—', medianPct: '—', rangeLow: '—', rangeHigh: '—', matchNote: '', read: '' },
+    extrapolation: scenarioExtrapolatedIds.length > 0
       ? {
           show: true,
           message:
-            'This shock implies a ' + Math.abs((scenarioOutcome?.proxyReturn ?? 0) * 100).toFixed(1) + '% single-day move in ' + scenarioFactorDef.proxy
-            + ' — bigger than any day observed in the last year (largest was ' + (scenarioMaxObserved * 100).toFixed(1) + '%)'
-            + '. Treat the prediction above as an extrapolation beyond the data, not a validated estimate.',
+            'The shock on ' + scenarioExtrapolatedIds.map((id) => FACTOR_BY_ID[id].label).join(' and ')
+            + ' implies a bigger single-day move than anything observed in the last year for ' + (scenarioExtrapolatedIds.length === 1 ? 'that proxy' : 'those proxies')
+            + '. Treat the prediction as an extrapolation beyond the data, not a validated estimate.',
         }
       : { show: false, message: '' },
     bookImpact: {
@@ -475,14 +523,29 @@ export function buildViewModel(b: Basis) {
   const lens = {
     sym: lensSym,
     scenario,
-    ready: explained.length > 0,
-    note: explained.length
-      ? explained.length + ' of ' + lensRows.length + ' factors regressed on 1Y daily bars'
+    ready: jointFactorCount > 0,
+    note: jointFit
+      ? jointFactorCount + ' of ' + st.factorSel.length + ' selected factors regressed jointly on 1Y daily bars'
       : anyLoading ? 'loading daily bars…' : st.authFailed ? 'Alpaca rejected your keys — no bars to regress' : hasAlpaca ? 'bars not cached yet' : 'connect Alpaca to compute real factor exposure',
-    headline: topFactor ? topFactor.label + ' explains ' + topFactor.r2 + ' of how ' + lensSym + ' moves' : 'Nothing to explain yet',
-    subhead: topFactor ? topFactor.read : 'Pick a holding and at least one factor, then load bars.',
+    headline: jointFit
+      ? jointExplainedPct + '% of ' + lensSym + "'s typical daily move is explained by " + (jointFactorCount === 1 ? 'this factor' : 'these ' + jointFactorCount + ' factors') + ' together'
+      : 'Nothing to explain yet',
+    subhead: jointFit
+      ? 'The other ' + (100 - jointExplainedPct) + '% is ' + lensSym + "'s own company-specific movement — earnings, news, anything not shared with the factors above."
+      : 'Pick a holding and at least one factor, then load bars.',
+    overlaps: jointOverlaps,
     rows: lensRows,
     book: bookExposure,
+    bookConcentration: bookJointR2 !== null
+      ? {
+          ready: true,
+          pct: Math.round(bookJointR2 * 100),
+          text:
+            Math.round(bookJointR2 * 100) + "% of your book's typical daily move traces back to "
+            + (jointFactorCount === 1 ? (FACTOR_BY_ID[st.factorSel[0]]?.label || 'one factor') : 'the ' + jointFactorCount + ' factors you\'re tracking (' + st.factorSel.map((id) => FACTOR_BY_ID[id]?.label).join(', ') + ')')
+            + ', across ' + bookJointFits.length + ' of ' + pos.length + ' holdings — a book that looks diversified by ticker count can still be one real bet.',
+        }
+      : { ready: false, pct: 0, text: '' },
     bookEmpty,
     loadLabel: anyLoading ? 'LOADING…' : 'LOAD FACTOR DATA',
     load: () => { b.update({ bars: {}, barsLoading: {} }); b.cacheFactorBars(); b.cacheBookBars() },

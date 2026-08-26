@@ -11,6 +11,14 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
         <span style={mono(9.5, 400, 'oklch(0.5 0 0)', { lineHeight: 1.4 })}>{vm.note}</span>
       </div>
 
+      {vm.overlaps.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,.03)' }}>
+          {vm.overlaps.map((o, i) => (
+            <span key={i} style={sans(10.5, 400, 'oklch(0.58 0 0)', 1.4)}>{o.text}</span>
+          ))}
+        </div>
+      )}
+
       {vm.bookEmpty && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 16, border: '1px dashed rgba(255,255,255,.18)', borderRadius: 12, background: '#0a0a0a' }}>
           <span style={sans(11.5, 400, 'oklch(0.7 0 0)', 1.5)}>Factor analysis needs holdings. Add your first position on the Lots tab and this fills in automatically.</span>
@@ -43,7 +51,8 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
         <button onClick={vm.load} style={{ ...resetBtn, minHeight: 42, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 10, border: '1px solid rgba(255,255,255,.16)', ...mono(10.5, 600, '#f0f0f0', { letterSpacing: '.06em' }) }}>{vm.loadLabel}</button>
       )}
 
-      <span style={mono(10.5, 600, 'oklch(0.62 0 0)', { letterSpacing: '.12em', marginTop: 2 })}>{vm.sym} · FACTOR BREAKDOWN</span>
+      <span style={mono(10.5, 600, 'oklch(0.62 0 0)', { letterSpacing: '.12em', marginTop: 2 })}>{vm.sym} · PER-FACTOR BREAKDOWN</span>
+      <span style={sans(10, 400, 'oklch(0.5 0 0)', 1.4, { marginTop: -8 })}>Each row on its own — how this factor alone relates to {vm.sym}, ignoring the others.</span>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
         {vm.rows.map((r) => (
@@ -73,6 +82,12 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
 
       <span style={mono(10.5, 600, 'oklch(0.62 0 0)', { letterSpacing: '.12em', marginTop: 4 })}>WHOLE BOOK · WEIGHTED EXPOSURE</span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, padding: '13px 12px', border: '1px solid rgba(255,255,255,.09)', borderRadius: 11, background: '#0a0a0a' }}>
+        {vm.bookConcentration.ready && (
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 5, paddingBottom: 9, borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+            <span style={mono(20, 600, vm.bookConcentration.pct >= 60 ? 'oklch(0.66 0.16 25)' : '#f4f4f4')}>{vm.bookConcentration.pct}%</span>
+            <span style={sans(11, 400, 'oklch(0.68 0 0)', 1.45)}>{vm.bookConcentration.text}</span>
+          </span>
+        )}
         {vm.book.map((bExp) => (
           <span key={bExp.label} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -85,45 +100,47 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
             </span>
           </span>
         ))}
-        <span style={sans(9.5, 400, 'oklch(0.48 0 0)', 1.45)}>Beta is weighted by each holding's share of book value. Above 1.2 means the book amplifies that factor.</span>
+        <span style={sans(9.5, 400, 'oklch(0.48 0 0)', 1.45)}>Beta is weighted by each holding's share of book value, fit jointly across your selected factors. Above 1.2 means the book amplifies that factor.</span>
       </div>
 
       <span style={mono(10.5, 600, 'oklch(0.62 0 0)', { letterSpacing: '.12em', marginTop: 4 })}>WHAT-IF · SCENARIO</span>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '13px 12px', border: '1px solid rgba(255,255,255,.1)', borderLeft: '3px solid oklch(0.78 0.13 75)', borderRadius: 12, background: '#0a0a0a' }}>
-        <span style={sans(11, 400, 'oklch(0.62 0 0)', 1.45)}>Pick a factor and drag the slider to a hypothetical move. The predicted % is the regressed beta applied to the shock; the backtest below checks it against what actually happened on the closest real historical days, so a straight-line extrapolation can't pass as validated.</span>
+        <span style={sans(11, 400, 'oklch(0.62 0 0)', 1.45)}>Add one or more factors and set a hypothetical move for each. The predicted % is those shocks run through a jointly-fit historical model — a conditional "if this happened, here's the historical relationship," not a forecast. The backtest below checks it against what actually happened on the closest real historical days.</span>
 
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-          {vm.scenario.picker.map((p) => (
-            <button key={p.id} onClick={p.pick} style={{ ...resetBtn, flex: 'none', minHeight: 32, padding: '0 11px', display: 'flex', alignItems: 'center', borderRadius: 8, background: p.bg, ...mono(10, 600, p.fg, { letterSpacing: '.02em' }) }}>{p.label}</button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={sans(12.5, 600, '#f0f0f0')}>{vm.scenario.factorLabel}</span>
-            <span style={mono(13, 600, 'oklch(0.78 0.13 75)')}>{vm.scenario.shockLabel}</span>
+        {vm.scenario.factors.map((f) => (
+          <div key={f.id} style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 11px', borderRadius: 10, background: 'rgba(255,255,255,.03)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ flex: 1, minWidth: 0, ...sans(12.5, 600, '#f0f0f0') }}>{f.label} <span style={mono(9, 400, 'oklch(0.5 0 0)')}>{f.proxy}</span></span>
+              <span style={mono(13, 600, 'oklch(0.78 0.13 75)')}>{f.shockLabel}</span>
+              <button onClick={f.remove} style={{ ...resetBtn, flex: 'none', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, ...mono(13, 500, 'oklch(0.45 0 0)') }}>×</button>
+            </div>
+            <input type="range" className="basis-slider" min={f.min} max={f.max} step={f.step} value={f.shock} onChange={f.onShockChange} />
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={mono(8.5, 400, 'oklch(0.46 0 0)')}>{f.min}{f.unit === 'bps' ? ' bps' : '%'}</span>
+              <span style={mono(8.5, 400, 'oklch(0.46 0 0)')}>{f.max}{f.unit === 'bps' ? ' bps' : '%'}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={mono(9, 400, 'oklch(0.5 0 0)')}>contributes</span>
+              <span style={mono(11.5, 600, f.contributionColor)}>{f.contributionPct}</span>
+            </div>
+            {f.extrapolated && (
+              <span style={mono(8.5, 400, 'oklch(0.66 0.16 25)', { lineHeight: 1.4 })}>this shock exceeds the largest single day observed ({f.maxObservedPct})</span>
+            )}
           </div>
-          <input
-            type="range" className="basis-slider"
-            min={vm.scenario.min} max={vm.scenario.max} step={vm.scenario.step} value={vm.scenario.shock}
-            onChange={vm.scenario.onShockChange}
-          />
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={mono(8.5, 400, 'oklch(0.46 0 0)')}>{vm.scenario.min}{vm.scenario.unit === 'bps' ? ' bps' : '%'}</span>
-            <span style={mono(8.5, 400, 'oklch(0.46 0 0)')}>{vm.scenario.max}{vm.scenario.unit === 'bps' ? ' bps' : '%'}</span>
-          </div>
-        </div>
+        ))}
 
-        <div style={{ display: 'flex', gap: 7 }}>
-          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,.045)' }}>
-            <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>{vm.sym} PREDICTED MOVE</span>
-            <span style={mono(17, 600, vm.scenario.assetColor)}>{vm.scenario.assetPct}</span>
-            {vm.scenario.band.show && <span style={mono(9, 400, 'oklch(0.5 0 0)')}>typical {vm.scenario.band.low} to {vm.scenario.band.high}</span>}
-          </span>
-          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '9px 10px', borderRadius: 8, background: 'rgba(255,255,255,.045)' }}>
-            <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>{vm.scenario.proxy} IMPLIED MOVE</span>
-            <span style={mono(17, 600, '#e9e9e9')}>{vm.scenario.proxyPct}</span>
-          </span>
+        {vm.scenario.addPicker.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+            {vm.scenario.addPicker.map((p) => (
+              <button key={p.id} onClick={p.pick} style={{ ...resetBtn, flex: 'none', minHeight: 34, padding: '0 12px', display: 'flex', alignItems: 'center', borderRadius: 8, border: '1px solid rgba(255,255,255,.14)', ...mono(10, 600, 'oklch(0.68 0 0)', { letterSpacing: '.02em' }) }}>+ {p.label}</button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '10px 11px', borderRadius: 9, background: 'rgba(255,255,255,.05)' }}>
+          <span style={mono(8, 400, 'oklch(0.5 0 0)', { letterSpacing: '.08em' })}>{vm.sym} MODELED RESPONSE</span>
+          <span style={mono(20, 600, vm.scenario.assetColor)}>{vm.scenario.assetPct}</span>
+          {vm.scenario.band.show && <span style={mono(9, 400, 'oklch(0.5 0 0)')}>typical {vm.scenario.band.low} to {vm.scenario.band.high}</span>}
         </div>
 
         <span style={sans(11.5, 400, 'oklch(0.72 0 0)', 1.5)}>{vm.scenario.read}</span>
@@ -138,7 +155,10 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
 
         {vm.scenario.analog.ready && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.07)' }}>
-            <span style={mono(9.5, 600, 'oklch(0.6 0 0)', { letterSpacing: '.1em' })}>BACKTEST · {vm.scenario.analog.count} CLOSEST HISTORICAL DAYS</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={mono(9.5, 600, 'oklch(0.6 0 0)', { letterSpacing: '.1em' })}>BACKTEST · {vm.scenario.analog.count} CLOSEST HISTORICAL DAYS</span>
+              <span style={mono(9, 400, 'oklch(0.5 0 0)')}>{vm.scenario.analog.matchNote}</span>
+            </div>
             <span style={sans(11, 400, 'oklch(0.68 0 0)', 1.45)}>{vm.scenario.analog.read}</span>
             <div style={{ display: 'flex', gap: 7 }}>
               <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3, padding: '7px 9px', borderRadius: 7, background: 'rgba(255,255,255,.04)' }}>

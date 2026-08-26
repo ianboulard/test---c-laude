@@ -1,6 +1,6 @@
 import type { Factor } from './constants'
 
-function retsOf(series: number[]): number[] {
+export function retsOf(series: number[]): number[] {
   const out: number[] = []
   for (let i = 1; i < series.length; i++) out.push(series[i] / series[i - 1] - 1)
   return out

@@ -31,6 +31,13 @@ export interface MultiFactorResult {
   /** Pairwise correlation between every pair of input factors — surfaced so the UI can
    *  warn "these two overlap a lot" instead of just quietly shrinking their coefficients. */
   correlations: Array<{ a: string; b: string; corr: number }>
+  /** Two-tailed p-value per factor, testing β=0 via a normal approximation to the ridge
+   *  coefficient's sampling distribution (see computeInference below for the exact
+   *  formula and its honest limits). Lower = more confidently nonzero. */
+  pValues: Record<string, number>
+  /** p < 0.05 convenience flag — "statistically distinguishable from noise," not
+   *  "large" or "important." A tiny beta can still be significant with enough history. */
+  significant: Record<string, boolean>
 }
 
 // Ridge strength on a standardized (unit-diagonal correlation-matrix) system: 0 is plain
@@ -76,6 +83,61 @@ function invertMatrix(m: number[][]): number[][] | null {
 
 function matVec(m: number[][], v: number[]): number[] {
   return m.map((row) => row.reduce((s, val, j) => s + val * v[j], 0))
+}
+function matMul(a: number[][], b: number[][]): number[][] {
+  const n = a.length
+  const p = b[0]?.length ?? 0
+  const k = b.length
+  return Array.from({ length: n }, (_, i) =>
+    Array.from({ length: p }, (_, j) => {
+      let s = 0
+      for (let t = 0; t < k; t++) s += a[i][t] * b[t][j]
+      return s
+    })
+  )
+}
+
+/** Abramowitz & Stegun 7.1.26 rational approximation to erf — max error ~1.5e-7. */
+function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1
+  const ax = Math.abs(x)
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911
+  const t = 1 / (1 + p * ax)
+  const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax)
+  return sign * y
+}
+function normalCdf(x: number): number {
+  return 0.5 * (1 + erf(x / Math.SQRT2))
+}
+
+/**
+ * Standard errors, t-stats, and p-values for the ridge coefficients, via the standard
+ * "sandwich" variance formula for a ridge estimator: Var(β̂) = σ²·A·(X'X)·A' where
+ * A = (X'X + λ'I)⁻¹. Worked entirely in the standardized (correlation-matrix) space this
+ * module already fits in, where X'X/m = R exactly and the equivalent raw-scale ridge
+ * penalty is λ' = m·λ — so A = (1/m)·inv and Var(β̂std) = (σ_std²/m)·inv·R·inv.
+ *
+ * Two honest caveats this doesn't paper over: (1) ridge is a biased estimator, so this
+ * variance describes spread around the ridge answer, not around the true population
+ * beta — it answers "how much would this coefficient move on a different sample,"
+ * which is the useful question for a retail significance flag, not a textbook unbiased
+ * hypothesis test. (2) p-values use a normal approximation to the t-distribution, which
+ * is accurate to a few parts in a thousand at the ~250-observation sample sizes this
+ * fits on and isn't worth the extra complexity of an exact incomplete-beta t-CDF here.
+ */
+function computeInference(betaStd: number[], inv: number[][], R: number[][], residualStdOnAssetScale: number, sa: number, m: number): { pValues: number[]; tStats: number[] } {
+  const sigmaStd = sa > 0 ? residualStdOnAssetScale / sa : 0
+  const invRinv = matMul(matMul(inv, R), inv)
+  const scale = m > 0 ? (sigmaStd * sigmaStd) / m : 0
+  const tStats: number[] = []
+  const pValues: number[] = []
+  for (let i = 0; i < betaStd.length; i++) {
+    const se = Math.sqrt(Math.max(0, invRinv[i][i] * scale))
+    const t = se > 0 ? betaStd[i] / se : 0
+    tStats.push(t)
+    pValues.push(2 * (1 - normalCdf(Math.abs(t))))
+  }
+  return { pValues, tStats }
 }
 
 /**
@@ -149,5 +211,13 @@ export function multiFactorFit(
     for (let j = i + 1; j < k; j++) correlations.push({ a: factorIds[i], b: factorIds[j], corr: R[i][j] })
   }
 
-  return { factorIds, betas, alpha, r2, residualStd, n: m, assetRets, factorRetsById, correlations }
+  const { pValues: pValueList } = computeInference(betaStd, inv, R, residualStd, sa, m)
+  const pValues: Record<string, number> = {}
+  const significant: Record<string, boolean> = {}
+  factorIds.forEach((id, i) => {
+    pValues[id] = pValueList[i]
+    significant[id] = pValueList[i] < 0.05
+  })
+
+  return { factorIds, betas, alpha, r2, residualStd, n: m, assetRets, factorRetsById, correlations, pValues, significant }
 }

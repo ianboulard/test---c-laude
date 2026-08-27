@@ -365,6 +365,25 @@ export function buildViewModel(b: Basis) {
           + ' correlated) — their individual coefficients can trade credit with each other; the combined figure above is not affected.',
       }
     })
+  // Two plain bars on whether this fit is trustworthy enough to act on: are the
+  // factors' coefficients statistically distinguishable from noise (p<0.05), and is
+  // the unexplained daily "noise" small enough (≤2%) that a factor read is actually
+  // informative rather than swamped by company-specific moves.
+  const jointSignificantCount = jointFit ? jointFit.factorIds.filter((id) => jointFit.significant[id]).length : 0
+  const jointResidualPct = jointFit ? jointFit.residualStd * 100 : null
+  const qualityGate = jointFit
+    ? {
+        ready: true,
+        residualPct: jointResidualPct!.toFixed(1) + '%',
+        meetsStdBar: jointResidualPct! <= 2,
+        significantCount: jointSignificantCount,
+        totalCount: jointFit.factorIds.length,
+        allSignificant: jointSignificantCount === jointFit.factorIds.length,
+        text:
+          jointSignificantCount + ' of ' + jointFit.factorIds.length + ' factors clear the 5% significance bar (p<0.05); '
+          + (jointResidualPct! <= 2 ? 'daily noise is ' + jointResidualPct!.toFixed(1) + '%, within the 2% quality bar.' : 'daily noise is ' + jointResidualPct!.toFixed(1) + '%, above the 2% quality bar — treat this fit as low-confidence.'),
+      }
+    : { ready: false, residualPct: '—', meetsStdBar: false, significantCount: 0, totalCount: 0, allSignificant: false, text: '' }
 
   // ── book-level roll-up: is a "diversified by ticker count" book really one bet? ──
   const bookJointFits = pos
@@ -448,6 +467,10 @@ export function buildViewModel(b: Basis) {
         contributionColor: contribution !== undefined ? (contribution >= 0 ? UP : DOWN) : 'oklch(0.5 0 0)',
         extrapolated: scenarioExtrapolatedIds.includes(id),
         maxObservedPct: scenarioFit ? pct(maxObservedMove(scenarioFit.factorRetsById[id] || []) * 100) : '—',
+        // Whether this factor's coefficient clears p<0.05 in the joint fit — a
+        // contribution built on a non-significant beta is noise wearing a number.
+        significant: scenarioFit ? !!scenarioFit.significant[id] : null,
+        pValueLabel: scenarioFit ? (scenarioFit.pValues[id] < 0.001 ? 'p<0.001' : 'p=' + scenarioFit.pValues[id].toFixed(3)) : '',
       }
     }),
     addPicker: FACTORS.filter((f) => !(f.id in st.scenarioShocks)).map((f) => ({ id: f.id, label: f.label, pick: () => b.addScenarioFactor(f.id) })),
@@ -534,6 +557,7 @@ export function buildViewModel(b: Basis) {
       ? 'The other ' + (100 - jointExplainedPct) + '% is ' + lensSym + "'s own company-specific movement — earnings, news, anything not shared with the factors above."
       : 'Pick a holding and at least one factor, then load bars.',
     overlaps: jointOverlaps,
+    qualityGate,
     rows: lensRows,
     book: bookExposure,
     bookConcentration: bookJointR2 !== null

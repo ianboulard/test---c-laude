@@ -54,6 +54,43 @@ export async function fetchFinnhubNews(sym: string, key: string): Promise<Ticker
   }
 }
 
+// Broad market news, not scoped to any single symbol — Finnhub's "general" category spans
+// all sectors and markets (macro, companies, commodities, crypto), which is what a daily
+// market-wide update needs instead of the book-specific company-news endpoint above.
+export async function fetchFinnhubMarketNews(key: string): Promise<TickerNewsItem[]> {
+  try {
+    const r = await fetch('https://finnhub.io/api/v1/news?category=general&token=' + encodeURIComponent(key))
+    const j: Array<{ datetime: number; source?: string; headline?: string; summary?: string; url?: string }> = await r.json()
+    if (!Array.isArray(j) || !j.length) return []
+    const sorted = j.slice().sort((a, c) => c.datetime - a.datetime)
+    // One story per distinct outlet, most recent first — that's the "5 sources" compiled
+    // update rather than 5 stories that might all be the same wire service.
+    const seenSrc: Record<string, 1> = {}
+    const picked: typeof sorted = []
+    for (const a of sorted) {
+      const src = (a.source || '').trim()
+      if (!src || !a.headline || !a.url || seenSrc[src]) continue
+      seenSrc[src] = 1
+      picked.push(a)
+      if (picked.length >= 5) break
+    }
+    return picked.map((a) => {
+      const d = new Date(a.datetime * 1000)
+      return {
+        date: d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }).toUpperCase(),
+        src: (a.source || 'news').slice(0, 24),
+        move: 'LIVE',
+        title: a.headline || '',
+        why: (a.summary || '').slice(0, 200),
+        ts: a.datetime * 1000,
+        url: a.url,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
 export async function searchFinnhub(q: string, key: string): Promise<{ status: string; results: SearchResult[] }> {
   try {
     const r = await fetch('https://finnhub.io/api/v1/search?q=' + encodeURIComponent(q) + '&token=' + encodeURIComponent(key))

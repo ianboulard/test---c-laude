@@ -51,6 +51,12 @@ export interface AppState {
   seenPapers: Record<string, 1>
   paperSpin: number
   paperAt: number
+  /** Daily, market-wide (all sectors, not book-specific) news update — up to 5 stories
+   *  compiled from distinct real outlets, refreshed once per calendar day. */
+  marketDigest: TickerNewsItem[]
+  marketDigestAt: number
+  marketDigestLoading: boolean
+  marketDigestStatus: string
   quoteAt: number
   paperTab: string
   tickerRes: Record<string, TickerNewsItem[]>
@@ -94,6 +100,7 @@ export const initialState: AppState = {
   sheet: false, apiKey: '', livePx: {}, liveNews: {}, live: false, watchlist: [],
   undo: null, csv: '', watchPaste: '', dataStatus: 'Sample data — add a key for live quotes', lastSync: '', savedAt: '', backup: '',
   livePapers: [], papersLoading: false, paperStatus: '', seenPapers: {}, paperSpin: 0, paperAt: 0, quoteAt: 0, paperTab: '',
+  marketDigest: [], marketDigestAt: 0, marketDigestLoading: false, marketDigestStatus: '',
   tickerRes: {}, tickerResAt: {}, tickerResLoading: {}, tlFilter: 'All', pullY: 0,
   quoteMeta: {}, query: '', results: [], searching: false, searchStatus: '',
   alpacaId: '', alpacaSecret: '', provider: '',

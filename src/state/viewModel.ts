@@ -806,6 +806,19 @@ export function buildViewModel(b: Basis) {
     },
 
     research: {
+      marketUpdate: {
+        loading: st.marketDigestLoading,
+        hasSource: hasAlpaca || !!st.apiKey,
+        updatedLabel: st.marketDigestAt
+          ? 'Compiled today ' + new Date(st.marketDigestAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+          : '',
+        status: st.marketDigestLoading
+          ? "Compiling today's update…"
+          : st.marketDigestStatus || (!hasAlpaca && !st.apiKey ? 'Add market-data keys in Data sources for a daily market update' : !st.marketDigest.length ? 'Press refresh to compile today\'s market update' : ''),
+        refreshLabel: st.marketDigestLoading ? 'COMPILING…' : 'REFRESH',
+        refresh: () => b.fetchMarketDigestAction(),
+        items: st.marketDigest.map((n) => ({ src: n.src, date: n.date, title: n.title, why: n.why, url: n.url })),
+      },
       resFilters: RES_FILTERS.map((r) => ({
         label: r.toUpperCase(),
         pick: () => { b.update({ resFilter: r }); if (!b.state.papersLoading) b.fetchPapersAction() },

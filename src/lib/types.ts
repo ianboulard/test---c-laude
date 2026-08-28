@@ -66,4 +66,6 @@ export interface BasisPersisted {
   seenPapers: Record<string, 1>
   paperSpin: number
   paperAt: number
+  marketDigest: TickerNewsItem[]
+  marketDigestAt: number
 }

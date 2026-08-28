@@ -107,6 +107,38 @@ export async function fetchAlpacaNews(sym: string, creds: AlpacaCreds): Promise<
   }
 }
 
+// Broad market news — omitting `symbols` returns Alpaca's whole news feed across every
+// listed name and sector, which is what a market-wide (not book-specific) daily update
+// needs. Alpaca's feed is sourced from a single wire (Benzinga), so "5 sources" here means
+// 5 of today's most recent distinct stories rather than 5 distinct outlets — Finnhub is
+// used instead when it's the configured provider, since its general-news feed aggregates
+// real, distinct outlets per story.
+export async function fetchAlpacaMarketNews(creds: AlpacaCreds): Promise<TickerNewsItem[]> {
+  const from = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10)
+  try {
+    const r = await fetch(
+      'https://data.alpaca.markets/v1beta1/news?start=' + from + '&limit=20&sort=desc',
+      { headers: headers(creds) }
+    )
+    const j = await r.json()
+    const arr: Array<{ created_at: string; source?: string; headline?: string; summary?: string; url?: string }> = j.news || []
+    return arr.slice(0, 5).map((a) => {
+      const d = new Date(a.created_at)
+      return {
+        date: d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }).toUpperCase(),
+        src: (a.source || 'news').slice(0, 24),
+        move: 'LIVE',
+        title: a.headline || '',
+        why: String(a.summary || '').replace(/<[^>]+>/g, ' ').slice(0, 200),
+        ts: d.getTime(),
+        url: a.url,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
 export interface BarsResult {
   s: number[]
   b: number[] | null

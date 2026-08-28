@@ -25,6 +25,7 @@ export function useBasis() {
       if (key === 'tab' && value === 'research') {
         const s = stateRef.current
         if (!s.papersLoading && (!s.livePapers.length || Date.now() - (s.paperAt || 0) > 18e5)) fetchPapersRef.current()
+        if (!s.marketDigestLoading && isStaleDay(s.marketDigestAt)) fetchMarketDigestRef.current()
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -280,6 +281,43 @@ export function useBasis() {
     [update]
   )
 
+  // ── daily market-wide news update (all sectors, not book-specific) ───────
+  const fetchMarketDigestAction = useCallback(async () => {
+    if (hasAlpaca()) {
+      update({ marketDigestLoading: true, marketDigestStatus: "Compiling today's market update…" })
+      const items = await Alpaca.fetchAlpacaMarketNews(creds())
+      update({
+        marketDigestLoading: false,
+        marketDigest: items.length ? items : stateRef.current.marketDigest,
+        marketDigestAt: items.length ? Date.now() : stateRef.current.marketDigestAt,
+        marketDigestStatus: items.length ? '' : 'Alpaca news unreachable — showing last saved update',
+      })
+      return
+    }
+    const key = (stateRef.current.apiKey || '').trim()
+    if (!key) {
+      update({ marketDigestStatus: 'Add market-data keys in Data sources for a daily market update' })
+      return
+    }
+    update({ marketDigestLoading: true, marketDigestStatus: "Compiling today's market update…" })
+    const items = await Finnhub.fetchFinnhubMarketNews(key)
+    update({
+      marketDigestLoading: false,
+      marketDigest: items.length ? items : stateRef.current.marketDigest,
+      marketDigestAt: items.length ? Date.now() : stateRef.current.marketDigestAt,
+      marketDigestStatus: items.length ? '' : 'Finnhub news unreachable — showing last saved update',
+    })
+  }, [creds, hasAlpaca, update])
+
+  const fetchMarketDigestRef = useRef(fetchMarketDigestAction)
+  fetchMarketDigestRef.current = fetchMarketDigestAction
+
+  const isStaleDay = (ts: number) => {
+    if (!ts) return true
+    const a = new Date(ts), b = new Date()
+    return a.getFullYear() !== b.getFullYear() || a.getMonth() !== b.getMonth() || a.getDate() !== b.getDate()
+  }
+
   // ── ticker news (alpaca or finnhub, whichever is configured) ─────────────
   const fetchTickerNews = useCallback(
     async (sym: string) => {
@@ -317,9 +355,10 @@ export function useBasis() {
       setTimeout(() => cacheBookBars(), 600)
     }
     if (!s.papersLoading) fetchPapersAction()
+    if (!s.marketDigestLoading) fetchMarketDigestAction()
     update({ tickerRes: {}, tickerResAt: {} })
     fetchTickerResearchAction(stateRef.current.ticker)
-  }, [cacheBookBars, fetchBars, fetchPapersAction, fetchQuotes, fetchTickerResearchAction, hasAlpaca, update])
+  }, [cacheBookBars, fetchBars, fetchMarketDigestAction, fetchPapersAction, fetchQuotes, fetchTickerResearchAction, hasAlpaca, update])
 
   const openRefreshRef = useRef(openRefresh)
   openRefreshRef.current = openRefresh
@@ -366,6 +405,7 @@ export function useBasis() {
       alpacaId: s.alpacaId, alpacaSecret: s.alpacaSecret,
       livePx: s.livePx, quoteMeta: s.quoteMeta, lastSync: s.lastSync, savedAt: new Date().toISOString(),
       livePapers: (s.livePapers || []).slice(0, 24), seenPapers: s.seenPapers, paperSpin: s.paperSpin, paperAt: s.paperAt,
+      marketDigest: s.marketDigest, marketDigestAt: s.marketDigestAt,
     }
     const cmp = JSON.stringify({ ...payload, savedAt: null })
     if (!force && cmp === snapRef.current) return
@@ -404,6 +444,8 @@ export function useBasis() {
         paperSpin: typeof d.paperSpin === 'number' ? d.paperSpin : 0,
         paperAt: d.paperAt || 0,
         paperStatus: d.livePapers && d.livePapers.length ? 'Saved set · refreshing' : '',
+        marketDigest: Array.isArray(d.marketDigest) ? d.marketDigest : [],
+        marketDigestAt: d.marketDigestAt || 0,
         dataStatus: d.alpacaId || d.apiKey ? 'Restored from this device · refreshing quotes' : 'Restored from this device',
       })
       setTimeout(() => openRefreshRef.current(), 0)
@@ -424,6 +466,7 @@ export function useBasis() {
       if ((Alpaca.hasAlpaca({ id: s.alpacaId, secret: s.alpacaSecret }) || s.apiKey) && qAge > 6e5) fetchQuotesRef.current()
       const pAge = Date.now() - (s.paperAt || 0)
       if (pAge > 2 * 36e5 && !s.papersLoading) fetchPapersRef.current()
+      if (isStaleDay(s.marketDigestAt) && !s.marketDigestLoading) fetchMarketDigestRef.current()
     }
     document.addEventListener('visibilitychange', onVis)
     const tick = setInterval(() => {
@@ -551,6 +594,7 @@ export function useBasis() {
     importWatchlist,
     fetchPapersAction,
     fetchTickerResearchAction,
+    fetchMarketDigestAction,
     pull,
   }
 }

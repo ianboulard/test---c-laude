@@ -4,6 +4,28 @@ import { mono, sans, resetBtn } from '../ui/tokens'
 export function ResearchScreen({ vm }: { vm: ViewModel['research'] }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', padding: '14px 18px 24px', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 11, border: '1px solid rgba(255,255,255,.1)', borderRadius: 11, background: '#0a0a0a' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <span style={mono(9.5, 600, 'oklch(0.66 0 0)', { letterSpacing: '.12em' })}>DAILY MARKET UPDATE</span>
+          <button onClick={vm.marketUpdate.refresh} disabled={vm.marketUpdate.loading} style={{ ...resetBtn, flex: 'none', minHeight: 26, padding: '0 9px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 7, border: '1px solid rgba(255,255,255,.14)', ...mono(9, 600, 'oklch(0.68 0 0)', { letterSpacing: '.06em' }) }}>{vm.marketUpdate.refreshLabel}</button>
+        </div>
+        {vm.marketUpdate.updatedLabel && <span style={mono(9, 400, 'oklch(0.48 0 0)')}>{vm.marketUpdate.updatedLabel} · all markets, all sectors</span>}
+        {vm.marketUpdate.status && <span style={sans(11, 400, 'oklch(0.6 0 0)', 1.4)}>{vm.marketUpdate.status}</span>}
+        {!!vm.marketUpdate.items.length && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {vm.marketUpdate.items.map((n, i) => (
+              <a key={i} href={n.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '8px 9px', borderRadius: 8, background: 'rgba(255,255,255,.04)', textDecoration: 'none' }}>
+                <span style={{ display: 'flex', gap: 7, alignItems: 'baseline' }}>
+                  <span style={mono(8.5, 600, 'oklch(0.74 0.13 232)', { letterSpacing: '.06em' })}>{n.src.toUpperCase()}</span>
+                  <span style={mono(8.5, 400, 'oklch(0.46 0 0)')}>{n.date}</span>
+                </span>
+                <span style={sans(12, 500, '#eaeaea', 1.4)}>{n.title}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div style={{ display: 'flex', gap: 5 }}>
         {vm.resFilters.map((rf) => (
           <button key={rf.label} onClick={rf.pick} style={{ ...resetBtn, flex: 1, minHeight: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: rf.bg, ...mono(9.5, 600, rf.fg) }}>{rf.label}</button>

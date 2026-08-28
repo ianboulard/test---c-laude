@@ -9,6 +9,9 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
         <span style={sans(16, 600, '#f7f7f7', 1.35, { letterSpacing: '-.01em' })}>{vm.headline}</span>
         <span style={sans(12, 400, 'oklch(0.7 0 0)', 1.5)}>{vm.subhead}</span>
         <span style={mono(9.5, 400, 'oklch(0.5 0 0)', { lineHeight: 1.4 })}>{vm.note}</span>
+        {vm.qualityGate.ready && (
+          <span style={mono(9.5, 400, vm.qualityGate.allSignificant && vm.qualityGate.meetsStdBar ? 'oklch(0.74 0.15 150)' : 'oklch(0.66 0.16 25)', { lineHeight: 1.4 })}>{vm.qualityGate.text}</span>
+        )}
       </div>
 
       {vm.overlaps.length > 0 && (
@@ -123,6 +126,9 @@ export function LensScreen({ vm }: { vm: ViewModel['lens'] }) {
               <span style={mono(9, 400, 'oklch(0.5 0 0)')}>contributes</span>
               <span style={mono(11.5, 600, f.contributionColor)}>{f.contributionPct}</span>
             </div>
+            {f.significant === false && (
+              <span style={mono(8.5, 400, 'oklch(0.66 0.16 25)', { lineHeight: 1.4 })}>not statistically significant ({f.pValueLabel}) — this contribution isn't reliably distinguishable from noise</span>
+            )}
             {f.extrapolated && (
               <span style={mono(8.5, 400, 'oklch(0.66 0.16 25)', { lineHeight: 1.4 })}>this shock exceeds the largest single day observed ({f.maxObservedPct})</span>
             )}

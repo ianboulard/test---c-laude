@@ -1,51 +1,34 @@
 # Basis
 
-A personal portfolio research terminal — real holdings, real risk, research you can
-go as deep on as you want. Six screens: Book, Ticker deep-dive, Factor lens,
-Research, Discover and Lots. Backed by Alpaca (market data), OpenAlex/Crossref
-(academic research), and an in-browser OLS regression for factor exposure.
-Everything persists to `localStorage` on the device — there is no backend.
+Built this (with the help of Claude cowork) to streamline my research and analysis process. 
+Every morning, I would wake up and take 30 minutes to sift through arrticles and find one that truly spoke to me, but I became
+increasingly annoyed with having to sort through things I didn't want to see in order to find what I did. 
+Once positions are imported via manual input or connection via API key into Alpaca, app will curate news and research to user's specific portfolio. 
+All research is pulled from Google scholar and similar general news articles are puleld from WSJ, Benzinga, Yahoo finance, Investopedia.
 
-This is a real implementation (React + TypeScript + Vite) of the
-`Ticker Research App.dc.html` design, shipped as an installable iOS web app
-(PWA) rather than a native App Store build — see "Install on iOS" below for why
-that's the right target for a design like this without an Apple developer
-account and Xcode.
+Currently in beta, most recent beta added multi variable regression (less predictive and more reflectioanry) to core risk factors that affect
+a surplus of equities in market. One user gives the app an equity to test and selects which risk factors they are interested in, the user 
+can stress test scenarios and visualize exactly what would happen to their portfolio. This tool is primarily used to allow the average retail
+investor to understand complex financial ideas and turn them into actionable takeaways with a simple and easy-to-use UI. The tool is given a backlog of 10 year financial data on each risk factor, with more factors to come in the future. 
 
-## Product principles (see `CLAUDE.md` for the full brief)
 
-- **Progressive depth**: every research object shows a plain-English read first;
-  "why it matters to you" and the full source are one tap away, never forced.
-- **Honest data**: real numbers or an em dash and an explanation. Never sample
-  data presented as real — when Alpaca isn't connected, every screen says so
-  instead of faking a chart.
-- Calm, dense, monochrome interface. IBM Plex Mono for numbers, IBM Plex Sans
-  for prose, black background, no gradients.
+## Usage
 
-## Development
+For real time data, follow these steps:
 
-```bash
-npm install
-npm run dev       # local dev server
-npm run build     # typecheck + production build to dist/
-npm run preview   # serve the production build locally
-```
+Click the top right icon that will say "Sample" on open.
 
-## Install on iOS
+Alpaca will prompt you API KEY and API SECRET KEY. Plug these in order:
 
-The app is a PWA: a manifest, app icons and a service worker make it installable
-straight from Safari, with its own home-screen icon and a full-screen standalone
-window (no browser chrome) — the practical equivalent of a downloaded app for a
-project at this stage, without needing an Apple developer account or a Mac to
-build an .ipa.
+API KEY
+PKHEF6O32G5C2ZTE5TQRNNCA57
 
-1. Deploy `dist/` (after `npm run build`) to any static host over HTTPS — PWA
-   install requires a real HTTPS origin, not a local file.
-2. Open the URL in **Safari** on iPhone.
-3. Tap the Share icon → **Add to Home Screen**.
+API SECRET KEY
+Cv1MVJhtLDn4NFbYXSmU4QwZt7HK4pjqJuTdUTMn4CQZ
 
-The app then launches like a native app: its own icon, a black status bar, and
-no address bar.
+Click Connect and ensure to test connection before proceeding.
+
+Enjoy!
 
 ## Data sources
 
@@ -60,7 +43,7 @@ Configure these from the status chip in the header ("Data sources" sheet):
 - **OpenAlex → Crossref** — used for the Research tab and per-ticker papers on
   the timeline; no key required. OpenAlex meters by daily budget, Crossref is
   the fallback. Google Scholar has no public API, so it's linked out to
-  per-record rather than scraped.
+  per-record 
 
 ## Project layout
 
